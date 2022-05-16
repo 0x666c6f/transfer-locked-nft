@@ -1,0 +1,14 @@
+{
+    "diff": true,
+    "extension": ["js"],
+    "package": "package.json",
+    "slow": 0,
+    "timeout": 0,
+    "recursive": true,
+    "file": [
+        "test/transfer-lock-nft-tests.js"
+    ],
+    "ui": "bdd",
+    "watch-files": ["test/*.js"],
+    "watch-ignore": ["lib/vendor"]
+}

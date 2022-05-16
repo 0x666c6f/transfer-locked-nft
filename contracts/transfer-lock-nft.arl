@@ -1,0 +1,304 @@
+/**
+* Private    : only owner or minter can mint
+* Multiple   : multiple collection
+**/
+archetype multiple_nft_private(owner : address)
+with metadata ""
+
+//----------------------------------------------------------------------------
+// Constants and variables
+//----------------------------------------------------------------------------
+
+constant CALLER_NOT_OWNER         : string = "CALLER_NOT_OWNER"
+constant TRANSFER_NOT_AUTHORIZED  : string = "TRANSFER_NOT_AUTHORIZED"
+constant FA2_INSUFFICIENT_BALANCE : string = "FA2_INSUFFICIENT_BALANCE"
+constant FA2_NOT_OPERATOR         : string = "FA2_NOT_OPERATOR"
+
+variable authorized_addresses: set<address> = []
+variable is_locked: bool = false
+
+//----------------------------------------------------------------------------
+// Administration
+//----------------------------------------------------------------------------
+
+entry lock() {
+  called by owner
+  effect {
+    is_locked := true;
+  }
+}
+
+entry unlock() {
+  called by owner
+  effect {
+    is_locked := false;
+  }
+}
+
+entry set_metadata(ikey: string, idata : bytes) {
+  called by owner
+  effect {
+    metadata := put(metadata, ikey, idata)
+  }
+}
+
+entry set_owner(owner_address: address) {
+  called by owner
+  effect {
+    owner := owner_address;
+  }
+}
+
+entry authorize(authorized_address: address) {
+  called by owner
+  effect {
+    authorized_addresses.add(authorized_address);
+  }
+}
+
+entry remove_authorization(authorized_address: address) {
+  called by owner
+  effect {
+    authorized_addresses.remove(authorized_address);
+  }
+}
+
+//----------------------------------------------------------------------------
+// Data types
+//----------------------------------------------------------------------------
+
+record part {
+  partAccount : address;
+  partValue   : nat;
+}
+
+asset royalties identified by rtokenid to big_map {
+  rtokenid : nat;
+  rvalue : list<part>;
+}
+
+asset ledger identified by ltoken lowner to big_map {
+  ltoken     : nat;
+  lowner     : address;
+  lamount    : nat = 0;
+}
+
+asset operators identified by oaddr otoken oowner to big_map {
+  oaddr       : address;
+  otoken      : nat;
+  oowner      : address;
+  ounit       : unit = Unit;
+}
+
+asset token_metadata to big_map {
+  ftoken_metadata : nat;
+  token_id        : nat;
+  token_info      : map<string, bytes>;
+}
+
+record operator_param {
+  opp_owner    : address;
+  opp_operator : address;
+  opp_token_id : nat
+} as ((owner, (operator, token_id)))
+
+record transfer_destination {
+  to_dest           : address;
+  token_id_dest     : nat;
+  token_amount_dest : nat
+} as ((%to, (token_id, amount)))
+
+record balance_of_request {
+  bo_owner : address;
+  btoken_id : nat;
+} as ((owner, token_id))
+
+record balance_of_response {
+  request : balance_of_request;
+  balance_ : nat;
+} as ((request, balance))
+
+asset operators_for_all identified by fa_oaddr fa_oowner to big_map {
+  fa_oaddr    : address;
+  fa_oowner   : address;
+  fa_empty    : unit = Unit;
+}
+
+//----------------------------------------------------------------------------
+// Operators
+//----------------------------------------------------------------------------
+
+/**
+* Adds or removes operators for specified tokens
+* @param upl list of add or remove operator specification
+*/
+entry update_operators (upl : list<or<operator_param, operator_param>>) {
+  effect {
+    for up in upl do
+      match up with
+      | left(param)  -> (* add *)
+        dorequire(param.opp_owner = caller , CALLER_NOT_OWNER);
+        operators.addupdate((param.opp_operator, param.opp_token_id, param.opp_owner), {})
+      | right(param) -> (* remove *)
+        dorequire(param.opp_owner = caller , CALLER_NOT_OWNER);
+        operators.remove((param.opp_operator, param.opp_token_id, param.opp_owner))
+      end;
+    done;
+  }
+}
+
+/**
+* Adds or removes an operator for *all* transfers for caller's tokens
+* @param upl list of add or remove operator address
+*/
+entry update_operators_for_all (upl : list<or<address, address>>) {
+  effect {
+    for up in upl do
+      match up with
+      | left(op)  -> (* add *)
+        operators_for_all.addupdate((op, caller), {})
+      | right(op) -> (* remove *)
+        operators_for_all.remove((op, caller))
+      end;
+    done;
+  }
+}
+
+function check_owner_and_operator(txs : list<address * list<transfer_destination>>) : bool {
+  var res = false;
+
+  for tx in txs do
+    var %from = tx[0];
+    var tds = tx[1];
+    for td in tds do begin
+      res :=
+        if caller <> %from then
+          (operators.contains((caller,td.token_id_dest,%from)) or
+           operators_for_all.contains((caller, %from)))
+        else
+          ledger.contains((td.token_id_dest, caller));
+    end
+    done
+  done;
+  return res
+}
+
+//----------------------------------------------------------------------------
+// FA2 transfer (with permit check)
+//----------------------------------------------------------------------------
+
+/**
+* Transfers tokens
+* @param txs list of pairs of 'from' address and transfer destination
+* Note : a transfer destination has a 'to' address, a token id and an amount
+* Note : if caller is not 'from' nor operator, it checks if there is a permit
+*/
+entry %transfer (txs : list<address * list<transfer_destination>>) {
+  effect {
+    if is_locked then (
+      if not authorized_addresses.contains(caller) then (
+        fail(TRANSFER_NOT_AUTHORIZED)
+      )
+    );
+
+    if not check_owner_and_operator(txs) then(
+      fail(FA2_NOT_OPERATOR)
+    );
+
+    for tx in txs do
+      var %from = tx[0];
+      var tds = tx[1];
+      for td in tds do begin
+        (* set token ownership *)
+        var tokenid = td.token_id_dest;
+        var amount = ledger[(tokenid, %from)].lamount;
+        if td.token_amount_dest > amount then
+          fail(FA2_INSUFFICIENT_BALANCE)
+        else if td.token_amount_dest = amount then
+          ledger.remove((tokenid, %from))
+        else
+          ledger.update((tokenid, %from), { lamount -= td.token_amount_dest });
+        ledger.addupdate((tokenid, td.to_dest), { lamount += td.token_amount_dest })
+      end done;
+    done
+  }
+}
+
+//----------------------------------------------------------------------------
+// Mint & burn
+//----------------------------------------------------------------------------
+
+/**
+* Mint new token
+* @param itokenid token id to mint
+* @param iowner owner of the token
+* @param iamount amount of token
+* @param itokenMetadata token metadata
+* @param iroyalties token's royalties
+*/
+entry mint(itokenid : nat, iowner : address, iamount : nat, itokenMetadata: map<string, bytes>, iroyalties : list<part>) {
+  called by owner
+  effect {
+    token_metadata.add({ftoken_metadata = itokenid; token_id = itokenid; token_info = itokenMetadata});
+    royalties.add({ rtokenid = itokenid; rvalue = iroyalties });
+    ledger.add({ ltoken = itokenid; lowner = iowner; lamount = iamount });
+  }
+}
+
+/**
+* Burn an amount of token
+* @param itokenid token to burn
+* @param iamount amount to burn
+*/
+entry burn(itokenid : nat, iamount : nat) {
+  effect {
+    if (ledger.contains((itokenid, caller))) then
+    begin
+      var vamount = ledger[(itokenid, caller)].lamount;
+      if (vamount > iamount)
+      then ledger.update((itokenid, caller), { lamount -= iamount })
+      else if (vamount = iamount)
+        then (
+          ledger.remove((itokenid, caller));
+          token_metadata.remove(itokenid);
+          royalties.remove(itokenid);
+        )
+        else fail(FA2_INSUFFICIENT_BALANCE);
+    end
+    else
+      fail(FA2_INSUFFICIENT_BALANCE);
+  }
+}
+
+//----------------------------------------------------------------------------
+// Getters (TZIP4 view) & views (Hangzhou)
+//----------------------------------------------------------------------------
+
+/**
+* TZIP-4 view (aka Archetype getter) to return the list of balances for each balance request
+* @param requests list of balance requests
+*/
+getter balance_of (requests : list<balance_of_request>) : list<balance_of_response> {
+  return map(requests, br -> {
+    request = br;
+    balance_ = (
+      if ledger.contains((br.btoken_id, br.bo_owner))
+      then ledger[(br.btoken_id, br.bo_owner)].lamount
+      else 0
+    )
+  })
+}
+
+/**
+* View (since Hangzhou) to return token's royalties
+* @param tokenid token id
+* Note: returns empty list if token does not exist in royalties map
+*/
+view get_royalties(tokenId : nat) : list<part> {
+  return (
+    if royalties.contains(tokenId) then
+      royalties[tokenId].rvalue
+    else
+      emptylist<part>()
+  )
+}
