@@ -4,7 +4,8 @@
     "description": "Tezos FA2 contract templates",
     "main": "index.js",
     "scripts": {
-        "test": "mocha --timeout 0 --slow 0"
+        "test": "mocha --timeout 0 --slow 0",
+        "deploy": "mocha ./script/deploy.js --timeout 0 --slow 9999999999"
     },
     "author": "",
     "license": "ISC",
