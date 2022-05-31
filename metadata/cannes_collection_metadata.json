@@ -1,0 +1,10 @@
+{
+    "name": "Cannes NFTs",
+    "version": "1.0.0",
+    "homepage": "https://rarible.com",
+    "interfaces": [
+        "TZIP-12", "TZIP-16"
+    ],
+    "license": "No License / All Rights Reserved",
+    "authors": "?"
+}

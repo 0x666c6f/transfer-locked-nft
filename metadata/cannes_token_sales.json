@@ -1,0 +1,22 @@
+{
+    "name": "ALMA VIVA - Cannes 2022",
+    "decimals": 0,
+    "description": "Premier NFT de Studio Exception à l’occasion de la semaine de la critique du Festival de Cannes 2022. Cette première série de NFT s’intégrera dans la collection « Films Studio Exception » qui retracera la participation du producteur dans ses projets cinématographiques et artistiques",
+    "artifactUri": "ipfs://bafybeicveyoxuaby2fr2fvnrsvxauhhyw6r5vzenkwvkaathxp3ccaz7gu/animation.mp4",
+    "attributes": [{
+        "name": "Avantage",
+        "value": "Possibilité de drops"
+    }, {
+        "name": "Distribution",
+        "value": "Airdrop"
+    }, {
+        "name": "Type",
+        "value": "Objet de collection"
+    }],
+    "formats": [{
+        "mimeType": "video/mp4",
+        "fileSize": 12496068,
+        "fileName": "ANIMATION_10.mp4",
+        "uri": "ipfs://bafybeicveyoxuaby2fr2fvnrsvxauhhyw6r5vzenkwvkaathxp3ccaz7gu/animation.mp4"
+    }]
+}
