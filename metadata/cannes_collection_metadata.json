@@ -1,10 +1,10 @@
 {
-    "name": "Cannes NFTs",
+    "name": "Films Studio Exception",
     "version": "1.0.0",
-    "homepage": "https://rarible.com",
+    "homepage": "https://studioexception.eu/",
     "interfaces": [
         "TZIP-12", "TZIP-16"
     ],
     "license": "No License / All Rights Reserved",
-    "authors": "?"
+    "authors": "Studio Exception"
 }
